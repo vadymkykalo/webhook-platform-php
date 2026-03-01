@@ -1,6 +1,6 @@
 # webhook-platform/php
 
-Official PHP SDK for [Webhook Platform](https://github.com/vadymkykalo/webhook-platform).
+Official PHP SDK for [Hookflow](https://github.com/vadymkykalo/webhook-platform).
 
 ## Requirements
 
@@ -19,9 +19,9 @@ composer require webhook-platform/php
 ```php
 <?php
 
-use WebhookPlatform\WebhookPlatform;
+use Hookflow\Hookflow;
 
-$client = new WebhookPlatform(
+$client = new Hookflow(
     apiKey: 'wh_live_your_api_key',
     baseUrl: 'http://localhost:8080' // optional
 );
@@ -129,6 +129,82 @@ foreach ($attempts as $attempt) {
 $client->deliveries->replay($deliveryId);
 ```
 
+## Incoming Webhooks
+
+Receive, validate, and forward webhooks from third-party providers (Stripe, GitHub, Twilio, etc.).
+
+### Incoming Sources
+
+```php
+// Create an incoming source with HMAC verification
+$source = $client->incomingSources->create($projectId, [
+    'name' => 'Stripe Webhooks',
+    'slug' => 'stripe',
+    'providerType' => 'STRIPE',
+    'verificationMode' => 'HMAC_GENERIC',
+    'hmacSecret' => 'whsec_...',
+    'hmacHeaderName' => 'Stripe-Signature',
+]);
+
+echo "Ingress URL: {$source['ingressUrl']}\n";
+
+// List sources
+$sources = $client->incomingSources->list($projectId);
+
+// Update source
+$client->incomingSources->update($projectId, $sourceId, [
+    'name' => 'Stripe Production',
+    'rateLimitPerSecond' => 100,
+]);
+
+// Delete source
+$client->incomingSources->delete($projectId, $sourceId);
+```
+
+### Incoming Destinations
+
+```php
+// Add a forwarding destination
+$dest = $client->incomingSources->createDestination($projectId, $sourceId, [
+    'url' => 'https://your-api.com/webhooks/stripe',
+    'enabled' => true,
+    'maxAttempts' => 5,
+    'timeoutSeconds' => 30,
+]);
+
+// List destinations
+$dests = $client->incomingSources->listDestinations($projectId, $sourceId);
+
+// Update destination
+$client->incomingSources->updateDestination($projectId, $sourceId, $destId, [
+    'enabled' => false,
+]);
+
+// Delete destination
+$client->incomingSources->deleteDestination($projectId, $sourceId, $destId);
+```
+
+### Incoming Events
+
+```php
+// List incoming events (with optional source filter)
+$events = $client->incomingEvents->list($projectId, [
+    'sourceId' => $sourceId,
+    'page' => 0,
+    'size' => 20,
+]);
+
+// Get event details
+$event = $client->incomingEvents->get($projectId, $eventId);
+
+// Get forward attempts
+$attempts = $client->incomingEvents->getAttempts($projectId, $eventId);
+
+// Replay event to all destinations
+$result = $client->incomingEvents->replay($projectId, $eventId);
+echo "Replayed to {$result['destinationsCount']} destinations\n";
+```
+
 ## Webhook Signature Verification
 
 Verify incoming webhooks in your endpoint:
@@ -136,8 +212,8 @@ Verify incoming webhooks in your endpoint:
 ```php
 <?php
 
-use WebhookPlatform\Webhook;
-use WebhookPlatform\Exception\WebhookPlatformException;
+use Hookflow\Webhook;
+use Hookflow\Exception\HookflowException;
 
 // Get raw request body
 $payload = file_get_contents('php://input');
@@ -163,7 +239,7 @@ try {
     http_response_code(200);
     echo 'OK';
 
-} catch (WebhookPlatformException $e) {
+} catch (HookflowException $e) {
     error_log("Webhook verification failed: {$e->getMessage()}");
     http_response_code(400);
     echo 'Invalid signature';
@@ -178,8 +254,8 @@ try {
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use WebhookPlatform\Webhook;
-use WebhookPlatform\Exception\WebhookPlatformException;
+use Hookflow\Webhook;
+use Hookflow\Exception\HookflowException;
 
 class WebhookController extends Controller
 {
@@ -199,7 +275,7 @@ class WebhookController extends Controller
             
             return response('OK', 200);
 
-        } catch (WebhookPlatformException $e) {
+        } catch (HookflowException $e) {
             return response('Invalid signature', 400);
         }
     }
@@ -215,8 +291,8 @@ namespace App\Controller;
 
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use WebhookPlatform\Webhook;
-use WebhookPlatform\Exception\WebhookPlatformException;
+use Hookflow\Webhook;
+use Hookflow\Exception\HookflowException;
 
 class WebhookController
 {
@@ -236,7 +312,7 @@ class WebhookController
 
             return new Response('OK', 200);
 
-        } catch (WebhookPlatformException $e) {
+        } catch (HookflowException $e) {
             return new Response('Invalid signature', 400);
         }
     }
@@ -248,10 +324,10 @@ class WebhookController
 ```php
 <?php
 
-use WebhookPlatform\Exception\WebhookPlatformException;
-use WebhookPlatform\Exception\RateLimitException;
-use WebhookPlatform\Exception\AuthenticationException;
-use WebhookPlatform\Exception\ValidationException;
+use Hookflow\Exception\HookflowException;
+use Hookflow\Exception\RateLimitException;
+use Hookflow\Exception\AuthenticationException;
+use Hookflow\Exception\ValidationException;
 
 try {
     $client->events->send('test', []);
@@ -264,7 +340,7 @@ try {
     echo "Invalid API key\n";
 } catch (ValidationException $e) {
     echo "Validation failed: " . json_encode($e->getFieldErrors()) . "\n";
-} catch (WebhookPlatformException $e) {
+} catch (HookflowException $e) {
     echo "Error {$e->getStatusCode()}: {$e->getMessage()}\n";
 }
 ```
@@ -272,7 +348,7 @@ try {
 ## Configuration
 
 ```php
-$client = new WebhookPlatform(
+$client = new Hookflow(
     apiKey: 'wh_live_xxx',           // Required: Your API key
     baseUrl: 'https://api.example.com', // Optional: API base URL
     timeout: 30                      // Optional: Request timeout in seconds (default: 30)
